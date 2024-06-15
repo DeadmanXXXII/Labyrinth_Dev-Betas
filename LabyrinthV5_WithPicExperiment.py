@@ -346,6 +346,3 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = EncryptionApp(root)
     root.mainloop()
-```
-
-This script integrates both encryption and decryption functionalities with their respective monitoring mechanisms and GUI components. Ensure the background image path (`C:/Users/bluco/Downloads/backgound_image.png`) is correct and that all necessary dependencies (`watchdog`, `cryptography`) are installed in your Python environment for the script to work properly. Adjustments may be needed based on specific directory structures and file handling requirements.
