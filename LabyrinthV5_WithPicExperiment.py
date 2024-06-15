@@ -1,32 +1,178 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox
-from PIL import Image, ImageTk  # Added PIL imports for image handling
 import logging
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from cryptography.fernet import Fernet
 import os
+from PIL import Image, ImageTk
 
 # Set up logging
 logging.basicConfig(filename='encryption_tool.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Tooltip class remains unchanged
+# Tooltip class
+class CreateToolTip(object):
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self.widget.bind("<Enter>", self.enter)
+        self.widget.bind("<Leave>", self.leave)
 
-# EncryptionHandler and DecryptionHandler classes remain unchanged
+    def enter(self, event=None):
+        self.show_tooltip()
+
+    def leave(self, event=None):
+        self.hide_tooltip()
+
+    def show_tooltip(self):
+        x, y, _, _ = self.widget.bbox("insert")
+        x += self.widget.winfo_rootx() + 25
+        y += self.widget.winfo_rooty() + 25
+        self.tooltip_window = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        label = tk.Label(tw, text=self.text, background="yellow", relief='solid', borderwidth=1)
+        label.pack(ipadx=1)
+
+    def hide_tooltip(self):
+        tw = self.tooltip_window
+        if tw:
+            tw.destroy()
+
+# EncryptionHandler class definition
+class EncryptionHandler(FileSystemEventHandler):
+    def __init__(self, key, trigger, mode, directory, groups):
+        super().__init__()
+        self.key = key
+        self.fernet = Fernet(self.key)
+        self.trigger = trigger
+        self.mode = mode
+        self.directory = directory
+        self.groups = groups
+
+    def on_created(self, event):
+        if not event.is_directory and self.trigger == "Create":
+            file_path = event.src_path
+            if not file_path.endswith(".encrypted"):
+                self.handle_file(file_path)
+
+    def on_deleted(self, event):
+        if not event.is_directory and self.trigger == "Delete":
+            file_path = event.src_path
+            if file_path.endswith(".encrypted"):
+                self.handle_file(file_path)
+
+    def on_modified(self, event):
+        if not event.is_directory and self.trigger == "Modify":
+            file_path = event.src_path
+            if not file_path.endswith(".encrypted"):
+                self.handle_file(file_path)
+
+    def handle_file(self, file_path):
+        try:
+            if self.mode == "Individual" or (self.mode == "Group" and self.is_group(file_path)):
+                self.encrypt_file(file_path)
+            elif self.mode == "All":
+                self.encrypt_all_files()
+        except Exception as e:
+            logging.error(f"Error encrypting file {file_path}: {str(e)}")
+
+    def is_group(self, file_path):
+        if self.groups:
+            for group_path in self.groups:
+                if group_path.strip() in file_path:
+                    return True
+        return False
+
+    def encrypt_file(self, file_path):
+        with open(file_path, "rb") as f:
+            data = f.read()
+        encrypted_data = self.fernet.encrypt(data)
+        with open(file_path + ".encrypted", "wb") as f:
+            f.write(encrypted_data)
+        os.remove(file_path)
+
+    def encrypt_all_files(self):
+        for root, _, files in os.walk(self.directory):
+            for file_name in files:
+                file_path = os.path.join(root, file_name)
+                if not file_path.endswith(".encrypted"):
+                    self.encrypt_file(file_path)
+
+# DecryptionHandler class definition
+class DecryptionHandler(FileSystemEventHandler):
+    def __init__(self, key, trigger, mode, directory, groups):
+        super().__init__()
+        self.key = key
+        self.fernet = Fernet(self.key)
+        self.trigger = trigger
+        self.mode = mode
+        self.directory = directory
+        self.groups = groups
+
+    def on_created(self, event):
+        if not event.is_directory and self.trigger == "Create":
+            file_path = event.src_path
+            if file_path.endswith(".encrypted"):
+                self.handle_file(file_path)
+
+    def on_deleted(self, event):
+        if not event.is_directory and self.trigger == "Delete":
+            file_path = event.src_path
+            if not file_path.endswith(".encrypted"):
+                self.handle_file(file_path)
+
+    def on_modified(self, event):
+        if not event.is_directory and self.trigger == "Modify":
+            file_path = event.src_path
+            if file_path.endswith(".encrypted"):
+                self.handle_file(file_path)
+
+    def handle_file(self, file_path):
+        try:
+            if self.mode == "Individual" or (self.mode == "Group" and self.is_group(file_path)):
+                self.decrypt_file(file_path)
+            elif self.mode == "All":
+                self.decrypt_all_files()
+        except Exception as e:
+            logging.error(f"Error decrypting file {file_path}: {str(e)}")
+
+    def is_group(self, file_path):
+        if self.groups:
+            for group_path in self.groups:
+                if group_path.strip() in file_path:
+                    return True
+        return False
+
+    def decrypt_file(self, file_path):
+        with open(file_path, "rb") as f:
+            data = f.read()
+        decrypted_data = self.fernet.decrypt(data)
+        with open(file_path[:-len(".encrypted")], "wb") as f:
+            f.write(decrypted_data)
+        os.remove(file_path)
+
+    def decrypt_all_files(self):
+        for root, _, files in os.walk(self.directory):
+            for file_name in files:
+                file_path = os.path.join(root, file_name)
+                if file_path.endswith(".encrypted"):
+                    self.decrypt_file(file_path)
 
 # EncryptionApp class definition
 class EncryptionApp:
     def __init__(self, master):
         self.master = master
         master.title("Labyrinth - Encryption & Decryption")
-        
-        # Load background image
-        self.background_image = Image.open("C:/Users/bluco/Downloads/background_image.png")
-        self.background_image = self.background_image.resize((master.winfo_screenwidth(), master.winfo_screenheight()), Image.ANTIALIAS)
-        self.background_photo = ImageTk.PhotoImage(self.background_image)
+
+        # Add background image
+        background_image_path = "C:/Users/bluco/Downloads/background_image.png"
+        background_image = Image.open(background_image_path)
+        resized_background = background_image.resize((master.winfo_screenwidth(), master.winfo_screenheight()), Image.ANTIALIAS)
+        self.background_photo = ImageTk.PhotoImage(resized_background)
         self.background_label = tk.Label(master, image=self.background_photo)
         self.background_label.place(x=0, y=0, relwidth=1, relheight=1)
-        
+
         self.encryption_frame = tk.Frame(master)
         self.encryption_frame.pack(side="left", padx=20, pady=(20, 10))
 
@@ -138,14 +284,15 @@ class DecryptionApp:
     def __init__(self, master):
         self.master = master
         master.title("Labyrinth - Encryption & Decryption")
-        
-        # Load background image
-        self.background_image = Image.open("C:/Users/bluco/Downloads/background_image.png")
-        self.background_image = self.background_image.resize((master.winfo_screenwidth(), master.winfo_screenheight()), Image.ANTIALIAS)
-        self.background_photo = ImageTk.PhotoImage(self.background_image)
+
+        # Add background image
+        background_image_path = "C:/Users/bluco/Downloads/background_image.png"
+        background_image = Image.open(background_image_path)
+        resized_background = background_image.resize((master.winfo_screenwidth(), master.winfo_screenheight()), Image.ANTIALIAS)
+        self.background_photo = ImageTk.PhotoImage(resized_background)
         self.background_label = tk.Label(master, image=self.background_photo)
         self.background_label.place(x=0, y=0, relwidth=1, relheight=1)
-        
+
         self.decryption_frame = tk.Frame(master)
         self.decryption_frame.pack(side="right", padx=20, pady=(20, 10))
 
