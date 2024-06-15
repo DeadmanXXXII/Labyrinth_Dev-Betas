@@ -1,11 +1,11 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox
-from PIL import Image, ImageTk  # Import Image and ImageTk from PIL
 import logging
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from cryptography.fernet import Fernet
 import os
+from PIL import Image, ImageTk
 
 # Set up logging
 logging.basicConfig(filename='encryption_tool.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -165,9 +165,6 @@ class EncryptionApp:
         self.master = master
         master.title("Labyrinth - Encryption & Decryption")
 
-        # Load and display background image
-        self.load_background_image()
-
         self.encryption_frame = tk.Frame(master)
         self.encryption_frame.pack(side="left", padx=20, pady=(20, 10))
 
@@ -231,92 +228,163 @@ class EncryptionApp:
             self.group_paths_entry.config(state=tk.DISABLED)
 
     def select_directory(self):
-        self.directory = filedialog.askdirectory()
-        if self.directory:
-            self.directory_button.config(text="Selected Directory: " + self.directory)
+        directory = filedialog.askdirectory()
+        if directory:
+            self.selected_directory = directory
+            logging.info(f"Selected directory for encryption: {self.selected_directory}")
+            messagebox.showinfo("Directory Selected", f"Selected directory:\n{self.selected_directory}")
 
     def select_key(self):
-        self.key_file = filedialog.askopenfilename()
-        if self.key_file:
-            self.key_button.config(text="Selected Key File: " + os.path.basename(self.key_file))
+        key_file = filedialog.askopenfilename(filetypes=[("Key Files", "*.key")])
+        if key_file:
+            self.selected_key = key_file
+            logging.info(f"Selected key file for encryption: {self.selected_key}")
+            messagebox.showinfo("Key File Selected", f"Selected key file:\n{self.selected_key}")
 
     def start_monitoring(self):
-        if hasattr(self, 'directory') and hasattr(self, 'key_file'):
-            groups = self.group_paths_entry.get().split(',') if self.encrypt_mode.get() == "Group" else None
-            self.handler = EncryptionHandler(self.load_key(), self.encrypt_trigger.get(), self.encrypt_mode.get(), self.directory, groups)
+        if not hasattr(self, 'selected_directory') or not hasattr(self, 'selected_key'):
+            messagebox.showerror("Error", "Please select both directory and key file!")
+            return
 
-            self.encrypt_observer = Observer()
-            self.encrypt_observer.schedule(self.handler, self.directory, recursive=True)
-            self.encrypt_observer.start()
-
-            self.encrypt_label.config(text="Encryption Handler Status: Running")
-            self.start_button.config(state=tk.DISABLED)
-            self.stop_button.config(state=tk.NORMAL)
-            messagebox.showinfo("Monitoring Started", f"Monitoring directory '{self.directory}' for encryption events.")
+        if self.encrypt_mode.get() == "Group":
+            groups = [path.strip() for path in self.group_paths_entry.get().split(',')]
         else:
-            messagebox.showerror("Error", "Please select a directory and a key file.")
+            groups = None
+
+        handler = EncryptionHandler(self.get_key(), self.encrypt_trigger.get(), self.encrypt_mode.get(), self.selected_directory, groups)
+        self.observer = Observer()
+        self.observer.schedule(handler, self.selected_directory, recursive=True)
+        self.observer.start()
+        self.encrypt_label.config(text=f"Encryption Handler Status: Monitoring {self.selected_directory}")
+        self.start_button.config(state=tk.DISABLED)
+        self.stop_button.config(state=tk.NORMAL)
 
     def stop_monitoring(self):
-        if hasattr(self, 'encrypt_observer'):
-            self.encrypt_observer.stop()
-            self.encrypt_observer.join()
+        self.observer.stop()
+        self.observer.join()
+        self.encrypt_label.config(text="Encryption Handler Status: Idle")
+        self.start_button.config(state=tk.NORMAL)
+        self.stop_button.config(state=tk.DISABLED)
 
-            self.encrypt_label.config(text="Encryption Handler Status: Stopped")
-            self.start_button.config(state=tk.NORMAL)
-            self.stop_button.config(state=tk.DISABLED)
-            messagebox.showinfo("Monitoring Stopped", "Encryption monitoring has been stopped.")
+    def get_key(self):
+        with open(self.selected_key, 'rb') as f:
+            return f.read()
 
-    def load_key(self):
-        try:
-            with open(self.key_file, "rb") as f:
-                return f.read()
-        except Exception as e:
-            logging.error(f"Error loading key file '{self.key_file}': {str(e)}")
-            messagebox.showerror("Error", f"Failed to load key file '{self.key_file}'. Please check the file.")
+# DecryptionApp class definition
+class DecryptionApp:
+    def __init__(self, master):
+        self.master = master
+        master.title("Labyrinth - Encryption & Decryption")
 
-    def load_background_image(self):
-        try:
-            # Load the background image
-            background_image = Image.open(r'C:\Users\bluco\Downloads\background_image.png')
+        self.decryption_frame = tk.Frame(master)
+        self.decryption_frame.pack(side="right", padx=20, pady=(20, 10))
 
-            # Resize the image to fit the window if necessary
-            window_width, window_height = self.master.winfo_width(), self.master.winfo_height()
-            background_image = background_image.resize((window_width, window_height), Image.ANTIALIAS)
+        self.label1 = tk.Label(self.decryption_frame, text="Select a directory to monitor:", font=("Helvetica", 12))
+        self.label1.pack()
 
-            # Convert the image to a format compatible with tkinter
-            self.background_photo = ImageTk.PhotoImage(background_image)
+        self.directory_button = tk.Button(self.decryption_frame, text="Select Directory", command=self.select_directory, font=("Helvetica", 12), width=20)
+        self.directory_button.pack(pady=10)
+        CreateToolTip(self.directory_button, "Click to select the directory to monitor")
 
-            # Create a label to hold the image and place it in the window
-            bg_label = tk.Label(self.master, image=self.background_photo)
-            bg_label.place(x=0, y=0, relwidth=1, relheight=1)  # Cover the entire window
+        self.label2 = tk.Label(self.decryption_frame, text="Select a key file:", font=("Helvetica", 12))
+        self.label2.pack()
 
-            # Ensure the background image is behind all other widgets
-            bg_label.lower()
+        self.key_button = tk.Button(self.decryption_frame, text="Select Key File", command=self.select_key, font=("Helvetica", 12), width=20)
+        self.key_button.pack(pady=10)
+        CreateToolTip(self.key_button, "Click to select the key file")
 
-        except Exception as e:
-            logging.error(f"Error loading background image: {str(e)}")
-            messagebox.showerror("Error", "Failed to load background image. Please check the file path.")
+        self.label3 = tk.Label(self.decryption_frame, text="Select trigger for decryption:", font=("Helvetica", 12))
+        self.label3.pack()
 
-# Rest of the code remains unchanged
+        self.decrypt_trigger = tk.StringVar()
+        self.decrypt_trigger.set("Create")
+        self.decrypt_trigger_menu = tk.OptionMenu(self.decryption_frame, self.decrypt_trigger, "Create", "Delete", "Modify")
+        self.decrypt_trigger_menu.config(font=("Helvetica", 12), width=17)
+        self.decrypt_trigger_menu.pack(pady=10)
+        CreateToolTip(self.decrypt_trigger_menu, "Select when decryption should trigger")
 
+        self.label4 = tk.Label(self.decryption_frame, text="Select decryption mode:", font=("Helvetica", 12))
+        self.label4.pack()
+
+        self.decrypt_mode = tk.StringVar()
+        self.decrypt_mode.set("Individual")
+        self.decrypt_mode_menu = tk.OptionMenu(self.decryption_frame, self.decrypt_mode, "Individual", "Group", "All", command=self.toggle_group_entry)
+        self.decrypt_mode_menu.config(font=("Helvetica", 12), width=17)
+        self.decrypt_mode_menu.pack(pady=10)
+        CreateToolTip(self.decrypt_mode_menu, "Select how files should be decrypted")
+
+        self.label5 = tk.Label(self.decryption_frame, text="Enter group paths (comma-separated):", font=("Helvetica", 12))
+        self.label5.pack()
+
+        self.group_paths_entry = tk.Entry(self.decryption_frame, width=50, font=("Helvetica", 12))
+        self.group_paths_entry.pack(pady=10)
+        self.group_paths_entry.config(state=tk.DISABLED)
+        CreateToolTip(self.group_paths_entry, "Enter paths for group decryption (comma-separated)")
+
+        self.decrypt_label = tk.Label(self.decryption_frame, text="Decryption Handler Status: Idle", font=("Helvetica", 12))
+        self.decrypt_label.pack(pady=10)
+
+        self.start_button = tk.Button(self.decryption_frame, text="Start Monitoring", command=self.start_monitoring, font=("Helvetica", 12), width=20)
+        self.start_button.pack(pady=10)
+        CreateToolTip(self.start_button, "Start monitoring the selected directory for decryption")
+
+        self.stop_button = tk.Button(self.decryption_frame, text="Stop Monitoring", command=self.stop_monitoring, state=tk.DISABLED, font=("Helvetica", 12), width=20)
+        self.stop_button.pack(pady=10)
+        CreateToolTip(self.stop_button, "Stop monitoring the selected directory")
+
+    def toggle_group_entry(self, mode):
+        if mode == "Group":
+            self.group_paths_entry.config(state=tk.NORMAL)
+        else:
+            self.group_paths_entry.config(state=tk.DISABLED)
+
+    def select_directory(self):
+        directory = filedialog.askdirectory()
+        if directory:
+            self.selected_directory = directory
+            logging.info(f"Selected directory for decryption: {self.selected_directory}")
+            messagebox.showinfo("Directory Selected", f"Selected directory:\n{self.selected_directory}")
+
+    def select_key(self):
+        key_file = filedialog.askopenfilename(filetypes=[("Key Files", "*.key")])
+        if key_file:
+            self.selected_key = key_file
+            logging.info(f"Selected key file for decryption: {self.selected_key}")
+            messagebox.showinfo("Key File Selected", f"Selected key file:\n{self.selected_key}")
+
+    def start_monitoring(self):
+        if not hasattr(self, 'selected_directory') or not hasattr(self, 'selected_key'):
+            messagebox.showerror("Error", "Please select both directory and key file!")
+            return
+
+        if self.decrypt_mode.get() == "Group":
+            groups = [path.strip() for path in self.group_paths_entry.get().split(',')]
+        else:
+            groups = None
+
+        handler = DecryptionHandler(self.get_key(), self.decrypt_trigger.get(), self.decrypt_mode.get(), self.selected_directory, groups)
+        self.observer = Observer()
+        self.observer.schedule(handler, self.selected_directory, recursive=True)
+        self.observer.start()
+        self.decrypt_label.config(text=f"Decryption Handler Status: Monitoring {self.selected_directory}")
+        self.start_button.config(state=tk.DISABLED)
+        self.stop_button.config(state=tk.NORMAL)
+
+    def stop_monitoring(self):
+        self.observer.stop()
+        self.observer.join()
+        self.decrypt_label.config(text="Decryption Handler Status: Idle")
+        self.start_button.config(state=tk.NORMAL)
+        self.stop_button.config(state=tk.DISABLED)
+
+    def get_key(self):
+        with open(self.selected_key, 'rb') as f:
+            return f.read()
+
+# Main function to start the application
 def main():
     root = tk.Tk()
-
-    # Add headers and footers
-    header_label = tk.Label(root, text="Labyrinth - File Encryption and Decryption Tool", font=("Helvetica", 16, "bold"))
-    header_label.pack(pady=20)
-
-    # Create instances of both apps
-    encryption_app = EncryptionApp(root)
-    decryption_app = DecryptionApp(root)
-
-    footer_label = tk.Label(root, text="Created by Blu Corbel", font=("Helvetica", 10))
-    footer_label.pack(side="bottom", pady=10)
-
-    # Center both frames
-    encryption_app.master.geometry("+100+100")
-    decryption_app.master.geometry("+700+100")
-
+    app = EncryptionApp(root)
     root.mainloop()
 
 if __name__ == "__main__":
